@@ -1,0 +1,414 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>keiba-ai LAB — 競馬予想AIの公開フィード</title>
+<meta name="description" content="LightGBMベースの競馬予想AIの予測・成績・データ蓄積状況（読み取り専用）">
+<style>
+  :root{
+    color-scheme: light;
+    --bg:#f5f4f1; --surface-1:#fcfcfb; --surface-2:#f0efec; --border:rgba(11,11,11,.10);
+    --text-primary:#0b0b0b; --text-secondary:#52514e; --text-muted:#7a7972;
+    --accent:#2a78d6; --good:#006300; --good-mark:#0ca30c;
+    --critical:#d03b3b; --warning:#fab219;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:where(:not([data-theme="light"])){
+      color-scheme: dark;
+      --bg:#121211; --surface-1:#1a1a19; --surface-2:#242422; --border:rgba(255,255,255,.10);
+      --text-primary:#ffffff; --text-secondary:#c3c2b7; --text-muted:#8f8e85;
+      --accent:#3987e5; --good:#0ca30c; --good-mark:#0ca30c;
+      --critical:#d03b3b; --warning:#fab219;
+    }
+  }
+  :root[data-theme="dark"]{
+    color-scheme: dark;
+    --bg:#121211; --surface-1:#1a1a19; --surface-2:#242422; --border:rgba(255,255,255,.10);
+    --text-primary:#ffffff; --text-secondary:#c3c2b7; --text-muted:#8f8e85;
+    --accent:#3987e5; --good:#0ca30c; --good-mark:#0ca30c;
+    --critical:#d03b3b; --warning:#fab219;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text-primary);
+       font:14px/1.6 -apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP",sans-serif;
+       -webkit-text-size-adjust:100%}
+  .wrap{max-width:940px;margin:0 auto;padding:0 14px 60px}
+  header{position:sticky;top:0;z-index:5;background:var(--bg);padding:14px 0 8px;
+         border-bottom:1px solid var(--border)}
+  .brand{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
+  h1{font-size:16px;margin:0;letter-spacing:.01em}
+  .ro{font-size:10.5px;letter-spacing:.04em;border:1px solid var(--border);border-radius:999px;
+      padding:2px 9px;color:var(--text-secondary);background:var(--surface-2);white-space:nowrap}
+  .stamp{font-size:11.5px;color:var(--text-muted);margin-top:3px}
+  nav{display:flex;gap:2px;margin-top:10px;overflow-x:auto;scrollbar-width:none}
+  nav::-webkit-scrollbar{display:none}
+  nav button{flex:0 0 auto;background:none;border:0;border-bottom:2px solid transparent;
+             padding:7px 11px;font:inherit;font-size:13px;color:var(--text-muted);cursor:pointer;
+             white-space:nowrap}
+  nav button[aria-selected="true"]{color:var(--text-primary);border-bottom-color:var(--accent);
+             font-weight:600}
+  section{padding-top:16px}
+  .banner{display:flex;gap:10px;align-items:flex-start;background:var(--surface-1);
+          border:1px solid var(--border);border-left:3px solid var(--accent);
+          border-radius:8px;padding:12px 14px;margin-bottom:14px}
+  .banner.warn{border-left-color:var(--warning)}
+  .banner.bad{border-left-color:var(--critical)}
+  .banner .headline{font-size:14.5px;font-weight:600;line-height:1.45}
+  .banner .sub{font-size:12.5px;color:var(--text-secondary);margin-top:3px}
+  .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-bottom:16px}
+  .tile{background:var(--surface-1);border:1px solid var(--border);border-radius:8px;padding:11px 13px}
+  .tile .label{font-size:11.5px;color:var(--text-muted)}
+  .tile .value{font-size:22px;font-weight:600;margin-top:2px;font-variant-numeric:tabular-nums;
+               letter-spacing:-.01em}
+  .tile .foot{font-size:11.5px;color:var(--text-secondary);margin-top:2px}
+  h2{font-size:13px;margin:18px 0 8px;font-weight:600;color:var(--text-secondary)}
+  h2:first-child{margin-top:0}
+  .card{background:var(--surface-1);border:1px solid var(--border);border-radius:8px;
+        padding:12px 14px;margin-bottom:10px}
+  .scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  table{border-collapse:collapse;width:100%;font-size:13px;font-variant-numeric:tabular-nums}
+  th,td{text-align:right;padding:7px 8px;border-bottom:1px solid var(--border);white-space:nowrap}
+  th:first-child,td:first-child{text-align:left}
+  th{font-size:11.5px;color:var(--text-muted);font-weight:500}
+  tbody tr:last-child td{border-bottom:0}
+  .num{font-variant-numeric:tabular-nums}
+  .pos{color:var(--good)} .neg{color:var(--critical)} .mut{color:var(--text-muted)}
+  .pill{display:inline-block;font-size:11px;padding:1px 7px;border-radius:999px;
+        border:1px solid var(--border);background:var(--surface-2);color:var(--text-secondary)}
+  .pill.rec{background:rgba(42,120,214,.12);border-color:rgba(42,120,214,.35);color:var(--accent);
+        font-weight:600}
+  .pill.hit{background:rgba(12,163,12,.13);border-color:rgba(12,163,12,.35);color:var(--good-mark);
+        font-weight:600}
+  .bar{height:7px;border-radius:999px;background:var(--surface-2);overflow:hidden;margin-top:7px}
+  .bar > i{display:block;height:100%;background:var(--accent);border-radius:999px}
+  .caveat{font-size:12.5px;color:var(--text-secondary);background:var(--surface-2);
+          border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-top:10px}
+  .caveat b{color:var(--text-primary)}
+  .race{border:1px solid var(--border);border-radius:8px;background:var(--surface-1);
+        padding:10px 12px;margin-bottom:8px}
+  .race .rh{display:flex;justify-content:space-between;align-items:center;gap:8px;
+        font-size:12.5px;color:var(--text-secondary);margin-bottom:6px}
+  .race .rh b{color:var(--text-primary);font-size:13.5px}
+  p{margin:0 0 10px} p:last-child{margin-bottom:0}
+  ul{margin:0 0 10px;padding-left:1.2em} li{margin-bottom:5px}
+  .foot-note{font-size:11.5px;color:var(--text-muted);margin-top:22px;text-align:center;
+        border-top:1px solid var(--border);padding-top:14px}
+  a{color:var(--accent)}
+  @media (max-width:560px){
+    .tiles{grid-template-columns:repeat(2,1fr)}
+    .tile .value{font-size:19px}
+    th,td{padding:6px 6px;font-size:12.5px}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <div class="brand">
+    <h1>keiba-ai LAB</h1>
+    <span class="ro">読み取り専用</span>
+  </div>
+  <div class="stamp" id="stamp">読み込み中…</div>
+  <nav id="tabs">
+    <button data-t="overview" aria-selected="true">概要</button>
+    <button data-t="picks" aria-selected="false">買い目</button>
+    <button data-t="perf" aria-selected="false">成績</button>
+    <button data-t="data" aria-selected="false">蓄積</button>
+    <button data-t="about" aria-selected="false">説明</button>
+  </nav>
+</header>
+
+<section id="overview"></section>
+<section id="picks" hidden></section>
+<section id="perf" hidden></section>
+<section id="data" hidden></section>
+<section id="about" hidden>
+  <h2>これは何か</h2>
+  <div class="card">
+    <p>netkeiba / JRA のデータを収集し、LightGBM で勝率を予測して期待値で馬券を選ぶ
+       システムの公開フィードです。<b>読み取り専用</b>で、このページから発注はできません。</p>
+    <p>ローカルで動くスケジューラが予測を DB に保存し、その要約が <code>state.json</code> として
+       ここに公開されます。ページは <b>60秒ごと</b>に取得し直します。</p>
+  </div>
+
+  <h2>採用している戦略</h2>
+  <div class="card">
+    <p><b>ダートの単勝で、モデル1位かつ期待値(EV) &gt; 0.5 のときだけ買う。</b>
+       芝は買いません。それ以外の券種も買いません。この規律そのものが戦略です。</p>
+    <p>芝とダートで結果が逆向きだったため、2026-09-08 にダート限定へ変更しました。
+       芝は EV&gt;1.0 で ROI -39.9%（EV を上げるほど悪化する逆シグナル）、
+       ダートは +92.5% で 9 つの EV 閾値すべてで単調に改善します。
+       EV&gt;1.0 での的中率は芝 6.3% に対しダート 17.4%（2標本比率検定 p=0.002）。
+       walk-forward では 2024 年のデータだけで選ばせた最良戦略が「単勝ダート EV&gt;1.0」で、
+       見ていない 2025 年で +91.8%（72件）でした。複勝・馬単は OOS で劣化するため停止しています。</p>
+    <p><b>年に約150件しか買いません。</b>（12レースにつき約0.5件）
+       高配当の的中に依存するため振れ幅が大きく、単年の成績では判断できない戦略です。</p>
+    <p>EV 閾値は当初 1.0 でしたが、買い目が年66件と少なすぎたため 0.5 に緩和しました。
+       out-of-sample の実測では EV&gt;1.0 が年66件で回収率 +92.5%（95%信頼区間 +23.5〜+184.5%）、
+       EV&gt;0.5 が年146件で +24.2%（同 -11.3〜+66.1%）です。
+       <b>件数を増やすほど回収率は急落します</b>（控除率20%に引きずられるため）。
+       現在の設定は、件数を2.2倍にする代わりに統計的な確証を手放したものです。</p>
+  </div>
+
+  <h2>このプロジェクトで得られた教訓</h2>
+  <div class="card">
+    <ul>
+      <li><b>AUC ≠ 回収率。</b> lambdarank化・特徴量剪定・汎用1モデル化はいずれも AUC では
+          中立〜改善だったのに、賭けROIでは劣化したため却下しました。高EVの裾の挙動は
+          AUC に表れません。</li>
+      <li><b>公開情報からは市場に勝てない。</b> モデルAUC 0.807 に対し市場（オッズ）AUC は 0.842。
+          調教評価グレード・トレーナー直近調子・ペース特徴量はいずれも増分エッジ ≈ 0 でした。
+          全員が同じページを見る情報は、すでに価格に織り込まれています。</li>
+      <li><b>残る活路は市場が未織込みの新情報。</b> すなわち締切までのオッズ変動
+          （smart money の私的情報の顕在化）です。このため前向きに収集しています。</li>
+    </ul>
+  </div>
+
+  <h2>注意</h2>
+  <div class="card">
+    <p>競馬は控除率およそ20%の負けゲームです。ここに出ている数字は研究目的の記録であって、
+       収益を保証するものではありません。表示している実戦成績は<b>標本が小さく</b>、
+       統計的にはまだ何も確定していません。</p>
+  </div>
+</section>
+
+<div class="foot-note">
+  ローカルのシステムが生成 → GitHub Pages で公開 ／ このページは60秒ごとに更新されます
+</div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const fmtInt = n => (n == null ? "—" : Number(n).toLocaleString("ja-JP"));
+const fmtPct = n => (n == null ? "—" : (n > 0 ? "+" : "") + Number(n).toFixed(1) + "%");
+const sign = n => (n == null ? "" : n > 0 ? "pos" : n < 0 ? "neg" : "");
+const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g,
+  c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+/* ---- タブ ---- */
+$("#tabs").addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b) return;
+  document.querySelectorAll("#tabs button").forEach(x =>
+    x.setAttribute("aria-selected", String(x === b)));
+  ["overview","picks","perf","data","about"].forEach(id =>
+    $("#" + id).hidden = (id !== b.dataset.t));
+});
+
+/* ---- 概要 ---- */
+function renderOverview(s) {
+  const sys = s.system, perf = s.performance, dr = s.drift;
+  let cls = "banner", head, sub;
+  if (!sys.scheduler_running) {
+    cls += " bad";
+    head = "スケジューラが停止しています";
+    sub = "新しい予測もオッズ収集も行われていません。ローカルで再起動が必要です。";
+  } else {
+    head = "スケジューラ稼働中";
+    sub = "開催日には各レースの発走10分前に自動で予測し、9〜16時は10分ごとに単勝オッズを記録します。";
+  }
+  const tiles = [
+    ["最終予測日", sys.last_prediction_date || "—", "予測を記録した直近の開催日"],
+    ["採用戦略の実績", perf.roi == null ? "—" : fmtPct(perf.roi),
+      `${fmtInt(perf.settled)}件で確定 / 的中${fmtInt(perf.hits)}件`, sign(perf.roi)],
+    ["ドリフト蓄積", dr.progress + "%", `${fmtInt(dr.linked)} / ${fmtInt(dr.target)} 頭`],
+    ["地方データ", s.nar.enabled ? fmtInt(s.nar.races) + "R" : "—",
+      s.nar.enabled ? "市場効率の診断用" : "未収集"],
+  ];
+  $("#overview").innerHTML = `
+    <div class="${cls}"><div>
+      <div class="headline">${esc(head)}</div>
+      <div class="sub">${esc(sub)}</div>
+    </div></div>
+    <div class="tiles">${tiles.map(([l, v, f, c]) => `
+      <div class="tile"><div class="label">${esc(l)}</div>
+        <div class="value ${c || ""}">${esc(v)}</div>
+        <div class="foot">${esc(f)}</div></div>`).join("")}</div>
+    <div class="caveat">
+      <b>数字の読み方。</b> 採用戦略の実績は確定 ${fmtInt(perf.settled)} 件しかなく、
+      統計的にはまだ何も言えません。的中1本の有無で大きく振れる段階です。
+      ${sys.line_enabled ? "" : "LINE通知は無効化されているため、買い目の確認先はこのページです。"}
+    </div>`;
+}
+
+/* ---- 買い目 ---- */
+function renderPicks(s) {
+  const t = s.today;
+  if (!t.date) { $("#picks").innerHTML = `<div class="card">予測がまだありません。</div>`; return; }
+  const recRaces = t.races.filter(r => r.rec.length);
+  const head = `
+    <div class="banner"><div>
+      <div class="headline">${esc(t.date)} の予測（${t.races.length}レース）</div>
+      <div class="sub">単勝の推奨は <b>${recRaces.length}件</b>。
+        モデル1位かつ EV&gt;1.0 のときだけ推奨し、それ以外は見送ります。</div>
+    </div></div>`;
+
+  const recHtml = recRaces.length ? `
+    <h2>単勝の推奨買い目</h2>
+    <div class="card scroll"><table>
+      <thead><tr><th>レース</th><th>馬番</th><th>馬名</th><th>オッズ</th><th>EV</th>
+        <th>賭金</th><th>結果</th></tr></thead>
+      <tbody>${recRaces.map(r => r.rec.map(h => `
+        <tr><td>${esc(r.venue)}${r.race_no}R</td>
+          <td>${fmtInt(h.n)}</td><td>${esc(h.name)}</td>
+          <td>${h.odds == null ? "—" : h.odds.toFixed(1)}</td>
+          <td>${h.ev == null ? "—" : h.ev.toFixed(2)}</td>
+          <td>¥${fmtInt(h.bet)}</td>
+          <td>${h.fin == null ? '<span class="mut">未確定</span>'
+              : h.fin === 1 ? '<span class="pill hit">1着</span>' : h.fin + "着"}</td></tr>`
+      ).join("")).join("")}</tbody>
+    </table></div>` : `
+    <h2>単勝の推奨買い目</h2>
+    <div class="card"><span class="mut">この日は推奨なし（EV&gt;1.0 の条件を満たす馬がいませんでした）。
+      買わないことも戦略のうちです。</span></div>`;
+
+  const allHtml = `
+    <h2>全レースの予測上位3頭</h2>
+    ${t.races.map(r => `
+      <div class="race">
+        <div class="rh"><b>${esc(r.venue)} ${r.race_no}R</b>
+          ${r.rec.length ? '<span class="pill rec">推奨あり</span>'
+            : r.settled ? '<span class="pill">確定</span>' : '<span class="pill">見送り</span>'}</div>
+        <div class="scroll"><table>
+          <thead><tr><th>馬番</th><th>馬名</th><th>予測確率</th><th>オッズ</th><th>EV</th>
+            <th>着順</th></tr></thead>
+          <tbody>${r.top.map(h => `
+            <tr><td>${fmtInt(h.n)}</td><td>${esc(h.name)}</td>
+              <td>${h.prob == null ? "—" : (h.prob * 100).toFixed(1) + "%"}</td>
+              <td>${h.odds == null ? "—" : h.odds.toFixed(1)}</td>
+              <td class="${h.ev > 1 ? "pos" : ""}">${h.ev == null ? "—" : h.ev.toFixed(2)}</td>
+              <td>${h.fin == null ? '<span class="mut">—</span>'
+                  : h.fin === 1 ? '<b>1着</b>' : h.fin + "着"}</td></tr>`).join("")}</tbody>
+        </table></div>
+      </div>`).join("")}`;
+
+  $("#picks").innerHTML = head + recHtml + allHtml;
+}
+
+/* ---- 成績 ---- */
+function renderPerf(s) {
+  const p = s.performance;
+  const roiCls = sign(p.roi);
+  $("#perf").innerHTML = `
+    <div class="banner ${p.settled < 30 ? "warn" : ""}"><div>
+      <div class="headline">単勝 モデル1位 × EV&gt;1.0 の実戦成績</div>
+      <div class="sub">${p.settled < 30
+        ? `確定 ${fmtInt(p.settled)} 件。判断に必要な標本にまったく足りていません。`
+        : `確定 ${fmtInt(p.settled)} 件。`}</div>
+    </div></div>
+    <div class="tiles">
+      <div class="tile"><div class="label">回収率</div>
+        <div class="value ${roiCls}">${p.roi == null ? "—" : fmtPct(p.roi)}</div>
+        <div class="foot">投資 ¥${fmtInt(p.staked)} → 払戻 ¥${fmtInt(p.returned)}</div></div>
+      <div class="tile"><div class="label">的中率</div>
+        <div class="value">${p.hit_rate == null ? "—" : (p.hit_rate * 100).toFixed(1) + "%"}</div>
+        <div class="foot">${fmtInt(p.hits)} / ${fmtInt(p.settled)} 件</div></div>
+      <div class="tile"><div class="label">推奨総数</div>
+        <div class="value">${fmtInt(p.bets)}</div>
+        <div class="foot">うち未確定 ${fmtInt(p.pending)} 件</div></div>
+    </div>
+    <div class="caveat">
+      <b>この数字を信用しないでください。</b> 標本が ${fmtInt(p.settled)} 件では、
+      的中が1本増減するだけで回収率が数十ポイント動きます。
+      バックテストでは 2024-25 通期 +18.2%（304件）、walk-forward の OOS で +11.5% でしたが、
+      実戦でそれを再現できているかを判定するには、少なくとも数百件の確定が必要です。
+      <br><br>
+      なお診断の結論として、<b>このモデルは市場に対する増分エッジがほぼゼロ</b>です
+      （モデルAUC 0.807 &lt; 市場AUC 0.842）。EV&gt;1.0 の超過収益は、過信気味のモデルが
+      市場の薄い過小評価を拾う脆い現象であり、systematic なものではない可能性があります。
+    </div>`;
+}
+
+/* ---- 蓄積 ---- */
+function renderData(s) {
+  const d = s.drift, n = s.nar;
+  const narHtml = n.enabled ? `
+    <h2>地方競馬（フェーズ0: 市場効率の診断）</h2>
+    <div class="card">
+      <p>地方の市場がJRAより非効率かを測るためのデータを収集しています。
+         非効率なら移植する価値があり、JRA同様に効率的なら打ち切ります。</p>
+      <div class="scroll"><table>
+        <tbody>
+          <tr><td>収集レース数</td><td>${fmtInt(n.races)}</td></tr>
+          <tr><td>出走頭数</td><td>${fmtInt(n.entries)}</td></tr>
+          <tr><td>期間</td><td>${esc(n.from)} 〜 ${esc(n.to)}</td></tr>
+        </tbody>
+      </table></div>
+      <div class="caveat">判断の軸は「頭数を揃えたときの市場AUC」です。地方は少頭数のため、
+        生のAUCをJRAと直接比べることはできません。</div>
+    </div>` : "";
+
+  const c = d.combo || {rows:0, races:0};
+  const comboHtml = `
+    <h2>連系の実オッズ（柱2）</h2>
+    <div class="card">
+      <p>複勝・三連複の<b>実オッズ</b>を発走15分前以内に記録します。従来の連系EVは
+         推定オッズ（単勝の掛け算）で全滅したため、本物のオッズで期待値を測り直します。</p>
+      <div class="scroll"><table><tbody>
+        <tr><td>記録した組み合わせ</td><td>${fmtInt(c.rows)} 行</td></tr>
+        <tr><td>対象レース</td><td>${fmtInt(c.races)}</td></tr>
+      </tbody></table></div>
+      ${c.rows === 0 ? `<div class="caveat">まだ蓄積がありません。収集経路は検証済みで、
+        次の開催日から記録が始まる見込みです。</div>` : ""}
+    </div>`;
+
+  $("#data").innerHTML = `
+    <h2>オッズ変動（ドリフト）の蓄積</h2>
+    <div class="card">
+      <p>締切までのオッズの動きは、公開情報ではなく<b>私的情報が価格に現れたもの</b>なので、
+         市場に対して直交しうる唯一の候補です。開催日ごとに前向きに記録しています。</p>
+      <div class="scroll"><table>
+        <tbody>
+          <tr><td>スナップショット</td><td>${fmtInt(d.rows)} 行</td></tr>
+          <tr><td>対象レース</td><td>${fmtInt(d.races)}</td></tr>
+          <tr><td>複数時点を持つ馬</td><td>${fmtInt(d.horses_multi)} 頭</td></tr>
+          <tr><td>結果が紐付いた馬</td><td>${fmtInt(d.linked)} 頭</td></tr>
+        </tbody>
+      </table></div>
+      <div style="margin-top:12px">
+        <div style="display:flex;justify-content:space-between;font-size:12.5px">
+          <span>検証に必要な量に対する進捗</span>
+          <span class="num">${fmtInt(d.linked)} / ${fmtInt(d.target)} 頭</span>
+        </div>
+        <div class="bar"><i style="width:${Math.min(d.progress, 100)}%"></i></div>
+      </div>
+      <div class="caveat">
+        現時点の検定結果は <b>「エッジなし」ではなく「判定不能」</b>です。
+        係数 +0.151 / p=0.61 / 95%CI [-0.43, +0.73] で、区間が広すぎて
+        過去研究が報告する 0.1〜0.3 規模の効果は原理的に検出できません。
+        観測窓は発走84分前〜1分後、馬あたり中央値9版と収集自体は正常なので、
+        足りないのは<b>サンプル数だけ</b>です。
+      </div>
+    </div>
+    ${comboHtml}
+    ${narHtml}`;
+}
+
+/* ---- 取得 ---- */
+function renderStamp(s) {
+  const age = (Date.now() - s.generated_at) / 60000;
+  const sys = s.system;
+  let txt = `データ生成 ${age < 1 ? "1分以内" : Math.floor(age) + "分前"}`;
+  if (age > 30) txt += "（更新が止まっている可能性があります）";
+  txt += ` ／ スケジューラ: ${sys.scheduler_running ? "稼働中" : "停止"}`;
+  txt += ` ／ LINE通知: ${sys.line_enabled ? "有効" : "無効"}`;
+  $("#stamp").textContent = txt;
+}
+
+function render(s) {
+  renderStamp(s); renderOverview(s); renderPicks(s); renderPerf(s); renderData(s);
+}
+
+async function tick() {
+  try {
+    const r = await fetch("./state.json?t=" + Date.now(), {cache: "no-store"});
+    if (!r.ok) throw new Error(r.status);
+    render(await r.json());
+  } catch (e) {
+    $("#stamp").textContent = "データを取得できませんでした（60秒後に再試行します）";
+  }
+}
+tick(); setInterval(tick, 60000);
+</script>
+</body>
+</html>
